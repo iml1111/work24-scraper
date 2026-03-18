@@ -1,4 +1,5 @@
 import re
+import time
 from datetime import datetime, timezone
 
 import requests
@@ -333,3 +334,57 @@ def parse_job_detail(html: str, wanted_auth_no: str) -> Job | None:
         deadline_date=deadline_date,
         registration_date=registration_date,
     )
+
+
+# ---------------------------------------------------------------------------
+# HTTP client wrapper
+# ---------------------------------------------------------------------------
+
+class Work24Scraper:
+    def __init__(self, delay: float = REQUEST_DELAY):
+        self.delay = delay
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": USER_AGENT})
+
+    def _request_with_delay(self, method: str, url: str, **kwargs) -> requests.Response:
+        time.sleep(self.delay)
+        resp = self.session.request(method, url, **kwargs)
+        resp.raise_for_status()
+        return resp
+
+    def get_total_count(self) -> int:
+        resp = self._request_with_delay(
+            "POST", LISTING_URL,
+            data={"sortField": "DATE", "sortOrderBy": "DESC", "pageIndex": 1, "resultCnt": 10},
+            allow_redirects=True,
+        )
+        return parse_total_count(resp.text)
+
+    def fetch_listing_page(self, page: int, per_page: int = 50) -> list[str]:
+        resp = self._request_with_delay(
+            "POST", LISTING_URL,
+            data={"sortField": "DATE", "sortOrderBy": "DESC", "pageIndex": page, "resultCnt": per_page},
+            allow_redirects=True,
+        )
+        return parse_listing_ids(resp.text)
+
+    def fetch_job_detail(self, wanted_auth_no: str) -> Job | None:
+        try:
+            resp = self._request_with_delay(
+                "GET", DETAIL_URL,
+                params={"wantedAuthNo": wanted_auth_no, "infoTypeCd": "VALIDATION", "infoTypeGroup": "tb_workinfoworknet"},
+            )
+            return parse_job_detail(resp.text, wanted_auth_no)
+        except requests.RequestException as e:
+            print(f"[ERROR] 상세 조회 실패 ({wanted_auth_no}): {e}")
+            return None
+
+    def is_job_active(self, wanted_auth_no: str) -> bool:
+        try:
+            resp = self._request_with_delay(
+                "GET", DETAIL_URL,
+                params={"wantedAuthNo": wanted_auth_no, "infoTypeCd": "VALIDATION", "infoTypeGroup": "tb_workinfoworknet"},
+            )
+            return not is_expired_page(resp.text)
+        except requests.RequestException:
+            return False
