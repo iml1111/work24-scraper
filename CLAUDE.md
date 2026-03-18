@@ -17,8 +17,30 @@
 ## 기술 스택
 
 - **언어**: Python
+- **HTTP**: requests
+- **HTML 파싱**: beautifulsoup4 + lxml
 - **Storage**: JSON 파일 기반 (POC)
 - **실행 방식**: CLI
+
+## 아키텍처
+
+CLI 스크립트(root) → usecases(순수 로직) → adapters(외부 의존) 단방향 의존.
+상세 설계: `docs/design-spec.md` 참고.
+
+## 사용법
+
+```bash
+pip install -e ".[dev]"
+python init_scrap.py      # 전체 초기 수집
+python sync_scrap.py      # 신규 공고 동기화
+python validate_job.py    # 마감 공고 제거
+```
+
+## 참고 문서
+
+- `docs/research-site-analysis.md` — 고용24 사이트 구조 분석
+- `docs/design-spec.md` — 설계 문서
+- `docs/implementation-plan.md` — 구현 계획
 
 ## 프로젝트 구조
 
