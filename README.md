@@ -50,6 +50,44 @@ CLI 스크립트 → usecases(순수 로직) → adapters(외부 의존)
 
 단방향 의존 구조. 상세 설계는 [`docs/design-spec.md`](docs/design-spec.md) 참고.
 
+### 스크립트별 동작 흐름
+
+**init / resume — 공유 엔진 (`_collect_missing`)**
+
+```
+init:   store.clear() → _collect_missing(existing_ids=빈 set)   # 전체 수집
+resume:              → _collect_missing(existing_ids=기존 ID set) # 빠진 것만 수집
+```
+
+- 전체 페이지(1 ~ total_pages) 순회, `existing_ids`에 없는 공고만 상세 조회
+- `existing_ids`를 in-place 갱신하여 같은 실행 내 중복 방지
+
+**sync — 조기 종료 방식**
+
+```
+페이지 1(최신)부터 순회 → 신규 발견 시 수집 → 연속 3페이지 신규 0이면 중단
+```
+
+- 초기 수집 완료 후 일상적으로 사용, 최신 페이지만 빠르게 훑음
+
+**validate — 만료 공고 제거**
+
+```
+DB 내 모든 공고 순회 → 상세 페이지 접근 → 만료 시 제거
+```
+
+- 만료 판별: 응답에 `alert("구인정보를 확인할 수 없습니다")` 포함 여부
+
+### 봇 탐지 우회
+
+`Work24Scraper`에 예방적 방어가 적용되어 있습니다:
+
+- **요청 자연화**: UA 로테이션 (6개 풀), 리얼리스틱 브라우저 헤더, Referer 자동 설정
+- **랜덤 딜레이**: 0.3~1.5초 균등 분포 (`random.uniform`)
+- **세션 로테이션**: 200건마다 새 세션 생성 (UA 재선택)
+- **지수 백오프**: 429/5xx 응답 시 2s→4s→8s 재시도 (최대 3회)
+- **차단 감지**: CAPTCHA/보안문자 등 감지 시 60초 대기 후 재시도 (최대 2회)
+
 ## 프로젝트 구조
 
 ```

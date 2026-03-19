@@ -1,3 +1,4 @@
+import random
 import re
 import time
 from datetime import datetime, timezone
@@ -10,16 +11,62 @@ from models import Job
 BASE_URL = "https://www.work24.go.kr"
 LISTING_URL = f"{BASE_URL}/wk/a/b/1200/retriveDtlEmpSrchListInPost.do"
 DETAIL_URL = f"{BASE_URL}/wk/a/b/1500/empDetailAuthView.do"
-USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/120.0.0.0 Safari/537.36"
-)
-REQUEST_DELAY = 0.5
+LISTING_REFERER = f"{BASE_URL}/wk/a/b/1200/retriveDtlEmpSrchList.do"
+
+USER_AGENTS = [
+    # Chrome (Mac)
+    (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    # Chrome (Windows)
+    (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/121.0.0.0 Safari/537.36"
+    ),
+    # Chrome (Mac, newer)
+    (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/122.0.0.0 Safari/537.36"
+    ),
+    # Firefox (Windows)
+    (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) "
+        "Gecko/20100101 Firefox/122.0"
+    ),
+    # Firefox (Mac)
+    (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:123.0) "
+        "Gecko/20100101 Firefox/123.0"
+    ),
+    # Safari (Mac)
+    (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+        "Version/17.2 Safari/605.1.15"
+    ),
+]
+
+BROWSER_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+}
 
 _EXPIRED_MARKERS = [
     "구인정보를 확인할 수 없습니다",
     "해당 구인인증번호의 상세 내역이 없습니다",
+]
+
+_BLOCKED_MARKERS = [
+    "captcha",
+    "보안문자",
+    "자동화된 요청",
+    "비정상적인 접근",
 ]
 
 
@@ -341,16 +388,92 @@ def parse_job_detail(html: str, wanted_auth_no: str) -> Job | None:
 # ---------------------------------------------------------------------------
 
 class Work24Scraper:
-    def __init__(self, delay: float = REQUEST_DELAY):
-        self.delay = delay
-        self.session = requests.Session()
-        self.session.headers.update({"User-Agent": USER_AGENT})
+    def __init__(
+        self,
+        delay_range: tuple[float, float] = (0.3, 1.5),
+        rotate_every: int = 200,
+    ):
+        self.delay_range = delay_range
+        self.rotate_every = rotate_every
+        self._request_count = 0
+        self.session = self._create_session()
+
+    def _create_session(self) -> requests.Session:
+        """UA 랜덤 선택 + 브라우저 헤더로 새 세션 생성"""
+        session = requests.Session()
+        ua = random.choice(USER_AGENTS)
+        session.headers.update({"User-Agent": ua, **BROWSER_HEADERS})
+        return session
+
+    def _rotate_session(self) -> None:
+        """세션 교체 — 새 UA + 헤더로 재생성"""
+        self.session.close()
+        self.session = self._create_session()
+        self._request_count = 0
+        print(f"[SESSION] 세션 갱신 (요청 {self.rotate_every}건 도달)")
 
     def _request_with_delay(self, method: str, url: str, **kwargs) -> requests.Response:
-        time.sleep(self.delay)
-        resp = self.session.request(method, url, **kwargs)
+        # 세션 로테이션
+        self._request_count += 1
+        if self._request_count >= self.rotate_every:
+            self._rotate_session()
+
+        # Referer 설정
+        headers = kwargs.pop("headers", {})
+        headers.setdefault("Referer", LISTING_REFERER)
+        kwargs["headers"] = headers
+
+        # 랜덤 딜레이
+        time.sleep(random.uniform(*self.delay_range))
+
+        # 요청 실행 + 지수 백오프 재시도
+        resp = self._request_with_retry(method, url, **kwargs)
+
+        # 차단 신호 감지
+        if self._is_blocked(resp):
+            resp = self._handle_blocked(method, url, **kwargs)
+
+        return resp
+
+    def _request_with_retry(self, method: str, url: str, max_retries: int = 3, **kwargs) -> requests.Response:
+        """요청 실행 + 429/5xx 시 지수 백오프 재시도"""
+        for attempt in range(max_retries + 1):
+            resp = self.session.request(method, url, **kwargs)
+
+            if resp.status_code == 429 or resp.status_code >= 500:
+                if attempt < max_retries:
+                    delay = (2 ** attempt) * 2
+                    print(f"[RETRY] HTTP {resp.status_code}, {delay}초 후 재시도 ({attempt + 1}/{max_retries})")
+                    time.sleep(delay)
+                    continue
+                # 최대 재시도 초과
+                resp.raise_for_status()
+
+            # 정상 응답 (4xx 중 429 외는 즉시 raise)
+            if resp.status_code >= 400:
+                resp.raise_for_status()
+
+            return resp
+
+        # unreachable, but for type checker
         resp.raise_for_status()
         return resp
+
+    def _is_blocked(self, resp: requests.Response) -> bool:
+        """응답 본문에서 차단 신호 감지"""
+        text_lower = resp.text.lower()
+        return any(marker in text_lower for marker in _BLOCKED_MARKERS)
+
+    def _handle_blocked(self, method: str, url: str, max_retries: int = 2, **kwargs) -> requests.Response:
+        """차단 감지 시 대기 후 재시도 — 백오프 루프에 재진입하지 않음 (스펙 4-4)"""
+        for attempt in range(max_retries):
+            print(f"[BLOCKED] 차단 신호 감지, 60초 대기 후 재시도 ({attempt + 1}/{max_retries})")
+            time.sleep(60)
+            resp = self.session.request(method, url, **kwargs)
+            resp.raise_for_status()
+            if not self._is_blocked(resp):
+                return resp
+        raise requests.RequestException("[BLOCKED] 지속적 차단 감지, 요청 중단")
 
     def get_total_count(self) -> int:
         resp = self._request_with_delay(

@@ -28,6 +28,19 @@
 CLI 스크립트(root) → usecases(순수 로직) → adapters(외부 의존) 단방향 의존.
 상세 설계: `docs/design-spec.md` 참고.
 
+### 스크립트별 동작 흐름
+
+- **init / resume**: 공유 엔진 `_collect_missing(scraper, store, existing_ids)` 사용. init은 `store.clear()` 후 빈 set 전달, resume은 기존 ID set 전달. 전체 페이지 순회.
+- **sync**: 페이지 1(최신)부터 순회, 연속 3페이지 신규 없으면 조기 종료. 별도 로직 (`sync_jobs`).
+- **validate**: DB 내 모든 공고의 상세 페이지 접근, 만료(`alert` 패턴) 시 제거. 별도 로직 (`validate_all_jobs`).
+
+### 봇 탐지 우회
+
+`Work24Scraper`에 적용된 예방적 방어 (상세: `docs/superpowers/specs/2026-03-19-anti-bot-design.md`):
+- UA 로테이션 (6개 풀), 리얼리스틱 브라우저 헤더, Referer 자동 설정
+- 랜덤 딜레이 (0.3~1.5s), 세션 로테이션 (200건마다)
+- 지수 백오프 재시도 (429/5xx), 차단 신호 감지 + 60s 대기 재시도
+
 ## 사용법
 
 ```bash
@@ -59,7 +72,7 @@ work24-scraper/
 │   └── store.py               # JSON 파일 CRUD
 ├── usecases/
 │   ├── __init__.py
-│   ├── collect.py             # 전체 수집 로직
+│   ├── collect.py             # 전체 수집 + 재개 로직
 │   ├── sync.py                # 동기화 로직
 │   └── validate.py            # 유효성 검증 로직
 ├── data/
