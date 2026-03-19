@@ -36,24 +36,35 @@ DB 초기화 필요 시: init_scrap → clear 후 처음부터
 
 ```python
 def _collect_missing(scraper, store, existing_ids: set[str]) -> CollectResult:
-    """전체 페이지를 순회하며 existing_ids에 없는 공고만 수집"""
+    """전체 페이지를 순회하며 existing_ids에 없는 공고만 수집.
+    existing_ids는 in-place로 갱신되어 같은 실행 내 중복 요청을 방지한다."""
     total = scraper.get_total_count()
     total_pages = ceil(total / 50)
     collected = 0
     failed = 0
 
     for page in range(1, total_pages + 1):
-        ids = scraper.fetch_listing_page(page)
+        try:
+            ids = scraper.fetch_listing_page(page)
+        except Exception as e:
+            print(f"[ERROR] 목록 페이지 {page} 실패: {e}")
+            failed += 50
+            continue
+
         new_ids = [id for id in ids if id not in existing_ids]
         if not new_ids:
             continue
         for wanted_auth_no in new_ids:
-            job = scraper.fetch_job_detail(wanted_auth_no)
-            if job:
-                store.add_job(job)
-                existing_ids.add(wanted_auth_no)
-                collected += 1
-            else:
+            try:
+                job = scraper.fetch_job_detail(wanted_auth_no)
+                if job:
+                    store.add_job(job)
+                    existing_ids.add(wanted_auth_no)
+                    collected += 1
+                else:
+                    failed += 1
+            except Exception as e:
+                print(f"[ERROR] 상세 조회 실패 ({wanted_auth_no}): {e}")
                 failed += 1
         print(f"[{page}/{total_pages}] 신규: {collected}, 실패: {failed}")
 
@@ -65,13 +76,16 @@ def collect_all_jobs(scraper, store) -> CollectResult:
     return _collect_missing(scraper, store, existing_ids=set())
 
 def resume_collect(scraper, store) -> CollectResult:
-    """중단 재개 — 기존 데이터 보존, 빠진 공고만 수집"""
+    """중단 재개 — 기존 데이터 보존, 빠진 공고만 수집.
+    빈 DB에서 실행하면 collect_all_jobs와 동일하게 전체 수집 (clear 없이)."""
     existing_ids = store.get_all_ids()
     print(f"[RESUME] 기존 {len(existing_ids)}건 보존, 빠진 공고 수집")
     return _collect_missing(scraper, store, existing_ids)
 ```
 
 핵심: `_collect_missing()`이 공유 엔진. init과 resume의 차이는 clear 여부와 초기 existing_ids뿐.
+
+> **참고:** `existing_ids`는 in-place mutate된다. `resume_collect()`에서 `store.get_all_ids()`가 반환한 set이 실행 중 갱신되어, 같은 실행 내에서 이미 수집한 공고를 다시 요청하지 않는다.
 
 ### 3.2 sync.py — 조기 종료 추가
 
@@ -88,7 +102,12 @@ def sync_jobs(scraper, store, early_stop: int = 3) -> SyncResult:
 
     for page in range(1, total_pages + 1):
         scanned_pages = page
-        ids = scraper.fetch_listing_page(page)
+        try:
+            ids = scraper.fetch_listing_page(page)
+        except Exception as e:
+            print(f"[ERROR] 목록 페이지 {page} 실패: {e}")
+            continue
+
         new_ids = [id for id in ids if id not in existing_ids]
 
         if not new_ids:
@@ -99,12 +118,16 @@ def sync_jobs(scraper, store, early_stop: int = 3) -> SyncResult:
         else:
             consecutive_empty = 0
             for wanted_auth_no in new_ids:
-                job = scraper.fetch_job_detail(wanted_auth_no)
-                if job:
-                    store.add_job(job)
-                    existing_ids.add(wanted_auth_no)
-                    new_count += 1
-                else:
+                try:
+                    job = scraper.fetch_job_detail(wanted_auth_no)
+                    if job:
+                        store.add_job(job)
+                        existing_ids.add(wanted_auth_no)
+                        new_count += 1
+                    else:
+                        failed += 1
+                except Exception as e:
+                    print(f"[ERROR] 상세 조회 실패 ({wanted_auth_no}): {e}")
                     failed += 1
 
         print(f"[{page}] 신규: {len(new_ids)}, 누적: {new_count}")
@@ -112,7 +135,9 @@ def sync_jobs(scraper, store, early_stop: int = 3) -> SyncResult:
     return SyncResult(scanned_pages=scanned_pages, new_count=new_count, failed=failed)
 ```
 
-`early_stop=3`: 연속 3페이지(150건) 동안 신규가 없으면 중단. init 완료 후 일상 sync는 수십 초에 완료.
+`early_stop=3`: 연속 3페이지(150건) 동안 신규가 없으면 중단. 신규 공고가 드문드문 등록되는 상황에서도 안전하게 탐색하면서, 이미 수집 완료된 영역에 진입하면 빠르게 종료한다. init 완료 후 일상 sync는 수십 초에 완료.
+
+**기존 대비 동작 변경:** 이전 sync는 항상 전체 ~2,600페이지를 스캔했으나, 변경 후에는 조기 종료로 최신 페이지 위주만 스캔한다. `scanned_pages`의 의미도 "전체 페이지 수"에서 "실제 스캔한 페이지 수"로 변경된다.
 
 ## 4. CLI 진입점
 
@@ -146,3 +171,4 @@ if __name__ == "__main__":
 | `usecases/sync.py` | 수정 | `early_stop` 조기 종료 로직 추가 |
 | `resume_scrap.py` | 신규 | CLI 진입점 |
 | `CLAUDE.md` | 수정 | CLI 명령 표, 프로젝트 구조에 `resume_scrap.py` 추가 |
+| `docs/design-spec.md` | 수정 | usecase 섹션에 `_collect_missing`, `resume_collect` 추가, `sync_jobs` 알고리즘 변경 반영 |
