@@ -49,6 +49,10 @@ python init_scrap.py      # 전체 초기 수집
 python resume_scrap.py    # 중단된 수집 재개
 python sync_scrap.py      # 신규 공고 동기화
 python validate_job.py    # 마감 공고 제거
+
+# 테스트 모드 (--dry)
+python init_scrap.py --dry    # 10페이지만 수집
+python resume_scrap.py --dry  # 이전 수집 이후 5페이지만 수집
 ```
 
 ## 참고 문서
@@ -65,7 +69,9 @@ work24-scraper/
 ├── resume_scrap.py            # CLI: 중단된 수집 재개
 ├── sync_scrap.py              # CLI: 신규 공고 추가 (조기 종료)
 ├── validate_job.py            # CLI: 마감 공고 검증 및 제거
-├── models.py                  # 데이터 모델 (dataclass)
+├── domain/
+│   ├── __init__.py
+│   └── models.py              # 데이터 모델 (dataclass)
 ├── adapters/
 │   ├── __init__.py
 │   ├── scraper.py             # HTTP 요청 + HTML 파싱
