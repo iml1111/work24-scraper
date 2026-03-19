@@ -1,4 +1,4 @@
-from models import Job
+from domain.models import Job
 from usecases.collect import CollectResult, collect_all_jobs, resume_collect
 
 

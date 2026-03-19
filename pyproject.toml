@@ -14,4 +14,4 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["adapters*", "usecases*"]
+include = ["domain*", "adapters*", "usecases*"]

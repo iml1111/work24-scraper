@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import requests
 from bs4 import BeautifulSoup, Tag
 
-from models import Job
+from domain.models import Job
 
 BASE_URL = "https://www.work24.go.kr"
 LISTING_URL = f"{BASE_URL}/wk/a/b/1200/retriveDtlEmpSrchListInPost.do"

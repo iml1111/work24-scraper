@@ -1,4 +1,4 @@
-from models import Job
+from domain.models import Job
 from usecases.sync import SyncResult, sync_jobs
 
 

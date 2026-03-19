@@ -3,7 +3,7 @@ import json
 import pytest
 
 from adapters.store import JsonJobStore
-from models import Job
+from domain.models import Job
 
 
 def make_job(wanted_auth_no: str = "TEST001") -> Job:

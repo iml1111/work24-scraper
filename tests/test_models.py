@@ -1,4 +1,4 @@
-from models import Job, job_from_dict, job_to_dict
+from domain.models import Job, job_from_dict, job_to_dict
 
 
 def make_sample_job() -> Job:
