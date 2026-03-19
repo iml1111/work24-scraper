@@ -9,15 +9,22 @@ class CollectResult:
     failed: int
 
 
-def _collect_missing(scraper, store, existing_ids: set[str]) -> CollectResult:
-    """전체 페이지를 순회하며 existing_ids에 없는 공고만 수집.
+def _collect_missing(
+    scraper,
+    store,
+    existing_ids: set[str],
+    start_page: int = 1,
+    max_pages: int | None = None,
+) -> CollectResult:
+    """페이지를 순회하며 existing_ids에 없는 공고만 수집.
     existing_ids는 in-place로 갱신되어 같은 실행 내 중복 요청을 방지한다."""
     total = scraper.get_total_count()
     total_pages = ceil(total / 50)
+    end_page = min(total_pages, start_page + max_pages - 1) if max_pages else total_pages
     collected = 0
     failed = 0
 
-    for page in range(1, total_pages + 1):
+    for page in range(start_page, end_page + 1):
         try:
             ids = scraper.fetch_listing_page(page)
         except Exception as e:
@@ -47,15 +54,16 @@ def _collect_missing(scraper, store, existing_ids: set[str]) -> CollectResult:
     return CollectResult(total=total, collected=collected, failed=failed)
 
 
-def collect_all_jobs(scraper, store) -> CollectResult:
+def collect_all_jobs(scraper, store, max_pages: int | None = None) -> CollectResult:
     """완전 초기 수집 — DB 초기화 후 전체 수집"""
     store.clear()
-    return _collect_missing(scraper, store, existing_ids=set())
+    return _collect_missing(scraper, store, existing_ids=set(), max_pages=max_pages)
 
 
-def resume_collect(scraper, store) -> CollectResult:
+def resume_collect(scraper, store, max_pages: int | None = None) -> CollectResult:
     """중단 재개 — 기존 데이터 보존, 빠진 공고만 수집.
     빈 DB에서 실행하면 collect_all_jobs와 동일하게 전체 수집 (clear 없이)."""
     existing_ids = store.get_all_ids()
-    print(f"[RESUME] 기존 {len(existing_ids)}건 보존, 빠진 공고 수집")
-    return _collect_missing(scraper, store, existing_ids)
+    start_page = len(existing_ids) // 50 + 1 if max_pages and existing_ids else 1
+    print(f"[RESUME] 기존 {len(existing_ids)}건 보존, 페이지 {start_page}부터 수집")
+    return _collect_missing(scraper, store, existing_ids, start_page=start_page, max_pages=max_pages)
