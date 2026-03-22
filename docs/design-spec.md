@@ -25,18 +25,21 @@ work24-scraper/
 ├── resume_scrap.py            # CLI: 중단된 수집 재개
 ├── sync_scrap.py              # CLI: 신규 공고 추가 (조기 종료)
 ├── validate_job.py            # CLI: 마감 공고 검증 및 제거
-├── models.py                  # 데이터 모델 (dataclass)
+├── domain/
+│   ├── __init__.py
+│   └── models.py              # 데이터 모델 (JobRef, Job dataclass)
 ├── adapters/
 │   ├── __init__.py
 │   ├── scraper.py             # HTTP 요청 + HTML 파싱
 │   └── store.py               # JSON 파일 CRUD
 ├── usecases/
 │   ├── __init__.py
-│   ├── collect.py             # 전체 수집 로직
+│   ├── collect.py             # 전체 수집 + 재개 로직
 │   ├── sync.py                # 동기화 로직
 │   └── validate.py            # 유효성 검증 로직
 ├── data/
 │   └── jobs.json              # JSON DB
+├── tests/
 ├── docs/
 ├── pyproject.toml
 └── CLAUDE.md
@@ -47,18 +50,30 @@ work24-scraper/
 ```
 CLI 스크립트 (root) → usecases (순수 로직) → adapters (외부 의존)
                                               ↑
-                              models.py (전 계층 공유)
+                            domain/models.py (전 계층 공유)
 ```
 
 - CLI → usecases → adapters 단방향 의존
 - adapters 간 상호 의존 없음
-- models.py는 모든 계층에서 import
+- domain/models.py는 모든 계층에서 import
 
 ---
 
 ## 3. 데이터 모델
 
-### Job dataclass (`models.py`)
+### JobRef dataclass (`domain/models.py`)
+
+```python
+@dataclass
+class JobRef:
+    wanted_auth_no: str          # 공고 고유 ID
+    info_type_cd: str            # 공고 유형 코드 (VALIDATION, EMANAGE 등)
+    info_type_group: str         # 공고 출처 그룹 (tb_workinfoworknet, tb_workinfojobhope 등)
+```
+
+고용24 목록 페이지는 여러 출처(워크넷/지자체/산업인력공단/인터넷)의 공고를 혼합 반환. 각 공고의 `infoTypeCd`와 `infoTypeGroup`이 다르며, `JobRef`로 ID+파라미터를 묶어 전달.
+
+### Job dataclass (`domain/models.py`)
 
 ```python
 @dataclass
@@ -111,41 +126,43 @@ class Job:
 
 ```python
 class Work24Scraper:
-    """고용24 HTTP 요청 + HTML 파싱"""
+    """고용24 HTTP 요청 + HTML 파싱 + 봇 탐지 우회"""
 
     def get_total_count() -> int
-    def fetch_listing_page(page: int, per_page: int = 50) -> list[str]
-    def fetch_job_detail(wanted_auth_no: str) -> Job | None
+    def fetch_listing_page(page: int, per_page: int = 10) -> list[JobRef]
+    def fetch_job_detail(ref: JobRef) -> tuple[Job | None, str]
     def is_job_active(wanted_auth_no: str) -> bool
 ```
 
 | 메서드 | HTTP 요청 | 설명 |
 |--------|----------|------|
 | `get_total_count` | POST listing → HTML | `totalRecordCount` JS 변수 파싱 |
-| `fetch_listing_page` | POST listing → HTML | `wantedAuthNo` 목록 추출 |
-| `fetch_job_detail` | GET detail → HTML | 전체 필드 파싱 → Job 반환. 만료 시 None |
-| `is_job_active` | GET detail → HTML | `fetch_job_detail` 결과가 None이면 False |
+| `fetch_listing_page` | POST listing → HTML | `JobRef` 목록 추출 (ID + infoTypeCd + infoTypeGroup) |
+| `fetch_job_detail` | GET detail → HTML | 전체 필드 파싱 → `(Job, status)` 반환. status: `ok`/`expired`/`blocked`/`error` |
+| `is_job_active` | GET detail → HTML | 만료 페이지 여부 확인 |
 
-**HTTP 설정:**
+**HTTP 설정 (봇 탐지 우회):**
 - `requests.Session` (커넥션 재사용)
-- 요청 간 딜레이: `time.sleep(0.5)`
-- User-Agent: Chrome UA 문자열
+- UA 로테이션 (6개 풀), 리얼리스틱 브라우저 헤더, Referer 자동 설정
+- 랜덤 딜레이 (1.0~3.0s), 세션 로테이션 (200건마다)
+- 지수 백오프 재시도 (429/5xx), 차단 신호 감지 + 60s 대기 재시도
 
 **목록 요청:**
 ```
 POST /wk/a/b/1200/retriveDtlEmpSrchListInPost.do
-Body: sortField=DATE&sortOrderBy=DESC&pageIndex={page}&resultCnt={per_page}
+Body: sortField=DATE&sortOrderBy=DESC&pageIndex={page}&resultCnt=10
 → 302 리다이렉트 → GET 응답 (HTML)
 ```
 
 **상세 요청:**
 ```
 GET /wk/a/b/1500/empDetailAuthView.do
-  ?wantedAuthNo={id}&infoTypeCd=VALIDATION&infoTypeGroup=tb_workinfoworknet
+  ?wantedAuthNo={id}&infoTypeCd={ref.info_type_cd}&infoTypeGroup={ref.info_type_group}
 ```
 
-**만료 판별:**
-- 응답 HTML에 `alert("구인정보를 확인할 수 없습니다")` 포함 시 만료
+**응답 판별:**
+- 만료: 응답 HTML에 `"구인정보를 확인할 수 없습니다"` 등 마커 포함
+- 차단: `captcha`, `보안문자`, `자동화된 요청`, `비정상적인 접근` 마커 감지
 
 ### `adapters/store.py` — JsonJobStore
 
@@ -181,52 +198,55 @@ class JsonJobStore:
 ### `usecases/collect.py` — 전체 수집 / 중단 재개
 
 ```
-_collect_missing(scraper, store, existing_ids) -> CollectResult:
+_collect_missing(scraper, store, existing_ids, start_page=1, max_pages=None) -> CollectResult:
   # 공유 엔진 — 전체 페이지 순회, existing_ids에 없는 공고만 수집
   1. total = scraper.get_total_count()
-  2. total_pages = ceil(total / 50)
-  3. for page in 1..total_pages:
-       ids = scraper.fetch_listing_page(page)
-       new_ids = [id for id in ids if id not in existing_ids]
-       if not new_ids: continue
-       for id in new_ids:
-         job = scraper.fetch_job_detail(id)
-         if job: store.add_job(job); existing_ids.add(id)
-       print progress
-  4. return CollectResult(total, collected, failed)
+  2. total_pages = ceil(total / 10)
+  3. for page in start_page..end_page:
+       refs = scraper.fetch_listing_page(page)
+       new_refs = [ref for ref in refs if ref.wanted_auth_no not in existing_ids]
+       if not new_refs: continue
+       for ref in new_refs:
+         job, status = scraper.fetch_job_detail(ref)
+         if status == "ok": store.add_job(job); existing_ids.add(ref.wanted_auth_no)
+         # status별 카운트: collected / expired / blocked / errors
+       print page summary
+  4. return CollectResult(total, collected, expired, blocked, errors)
 
-collect_all_jobs(scraper, store) -> CollectResult:
+collect_all_jobs(scraper, store, max_pages=None) -> CollectResult:
   1. store.clear()
-  2. return _collect_missing(scraper, store, existing_ids=set())
+  2. return _collect_missing(scraper, store, existing_ids=set(), max_pages=max_pages)
 
-resume_collect(scraper, store) -> CollectResult:
+resume_collect(scraper, store, max_pages=None) -> CollectResult:
   1. existing_ids = store.get_all_ids()
-  2. return _collect_missing(scraper, store, existing_ids)
+  2. start_page = len(existing_ids) // 10 + 1  (max_pages 모드 시)
+  3. return _collect_missing(scraper, store, existing_ids, start_page, max_pages)
 ```
 
 - `_collect_missing`은 공유 엔진. init과 resume의 차이는 clear 여부와 초기 existing_ids뿐
 - `existing_ids`는 in-place mutate되어 같은 실행 내 중복 요청 방지
+- `max_pages`: `--dry` 모드에서 페이지 수 제한 (init: 10, resume: 5)
 
 ### `usecases/sync.py` — 증분 동기화 (sync_scrap)
 
 ```
 sync_jobs(scraper, store, early_stop=3) -> SyncResult:
   1. existing_ids = store.get_all_ids()
-  2. total_pages = ceil(scraper.get_total_count() / 50)
+  2. total_pages = ceil(scraper.get_total_count() / 10)
   3. consecutive_empty = 0
   4. for page in 1..total_pages:
-       ids = scraper.fetch_listing_page(page)
-       new_ids = [id for id in ids if id not in existing_ids]
-       if not new_ids:
+       refs = scraper.fetch_listing_page(page)
+       new_refs = [ref for ref in refs if ref.wanted_auth_no not in existing_ids]
+       if not new_refs:
          consecutive_empty += 1
          if consecutive_empty >= early_stop: break
        else:
          consecutive_empty = 0
-         for id in new_ids:
-           job = scraper.fetch_job_detail(id)
-           if job: store.add_job(job); new_count += 1
+         for ref in new_refs:
+           job, status = scraper.fetch_job_detail(ref)
+           if status == "ok": store.add_job(job); new_count += 1
        print progress
-  5. return SyncResult(scanned_pages, new_count, failed)
+  5. return SyncResult(scanned_pages, new_count, expired, blocked, errors)
 ```
 
 - 조기 종료: 연속 `early_stop`(기본 3) 페이지 동안 신규 0이면 중단
@@ -257,12 +277,13 @@ validate_all_jobs(scraper, store) -> ValidateResult:
 if __name__ == "__main__":
     scraper = Work24Scraper()
     store = JsonJobStore()
-    result = collect_all_jobs(scraper, store)
+    max_pages = 10 if "--dry" in sys.argv else None
+    result = collect_all_jobs(scraper, store, max_pages=max_pages)
     print(result)
 ```
 
-`sync_scrap.py`, `validate_job.py`도 동일 패턴.
-CLI 인자 파싱 없음 (POC).
+`resume_scrap.py`, `sync_scrap.py`, `validate_job.py`도 동일 패턴.
+`--dry` 플래그로 테스트 모드 지원 (페이지 수 제한).
 
 ---
 
@@ -290,9 +311,11 @@ lxml
 
 | 상황 | 처리 |
 |------|------|
-| HTTP 요청 실패 (5xx, timeout) | 로그 출력 후 skip, failed 카운트 증가 |
+| HTTP 요청 실패 (5xx, timeout) | 지수 백오프 재시도 (최대 3회), 실패 시 skip + errors 카운트 |
+| HTTP 429 (Rate Limit) | 지수 백오프 재시도 (2초, 4초, 8초) |
+| 차단 신호 감지 | 60초 대기 후 재시도 (최대 2회) |
+| 만료 공고 상세 접근 | `(None, "expired")` 반환, expired 카운트 |
 | HTML 파싱 실패 | 로그 출력 후 skip |
-| 만료 공고 상세 접근 | None 반환 (정상 흐름) |
 | JSON 파일 없음 | 빈 dict로 초기화 |
 | JSON 파일 손상 | 에러 출력 후 종료 |
 
@@ -300,10 +323,10 @@ lxml
 
 ## 9. 성능 추정
 
-| 작업 | 요청 수 | 예상 시간 (0.5s/req) |
-|------|---------|---------------------|
-| init_scrap 목록 스캔 | ~2,600 pages | ~22분 |
-| init_scrap 상세 수집 | ~130,000 jobs | ~18시간 |
-| sync_scrap 목록 스캔 | ~2,600 pages | ~22분 |
+| 작업 | 요청 수 | 예상 시간 (avg 2.0s/req) |
+|------|---------|------------------------|
+| init_scrap 목록 스캔 | ~12,600 pages (10건/page) | ~7시간 |
+| init_scrap 상세 수집 | ~126,000 jobs | ~70시간 |
+| sync_scrap 목록 스캔 | 조기 종료 (3페이지 연속 신규 없음) | 수십 초 |
 | sync_scrap 신규 상세 | 신규 건수만큼 | 변동 |
-| validate_job | DB 내 전체 건수 | ~18시간 (전체) |
+| validate_job | DB 내 전체 건수 | ~70시간 (전체) |
