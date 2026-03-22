@@ -3,13 +3,18 @@ import os
 from adapters.scraper import (
     is_expired_page,
     parse_job_detail,
-    parse_listing_ids,
+    parse_listing_refs,
     parse_total_count,
 )
+from domain.models import JobRef
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 
-WANTED_AUTH_NO = "Dd04022603180062"
+TEST_REF = JobRef(
+    wanted_auth_no="Dd04022603180062",
+    info_type_cd="VALIDATION",
+    info_type_group="tb_workinfoworknet",
+)
 
 
 def read_fixture(name: str) -> str:
@@ -17,14 +22,16 @@ def read_fixture(name: str) -> str:
         return f.read()
 
 
-def test_parse_listing_ids():
+def test_parse_listing_refs():
     html = read_fixture("listing_page.html")
-    ids = parse_listing_ids(html)
-    assert len(ids) == 10
-    assert all(isinstance(id, str) for id in ids)
-    assert all(len(id) > 5 for id in ids)
-    # All IDs should be unique
-    assert len(ids) == len(set(ids))
+    refs = parse_listing_refs(html)
+    assert len(refs) == 10
+    assert all(isinstance(ref, JobRef) for ref in refs)
+    assert all(len(ref.wanted_auth_no) > 5 for ref in refs)
+    assert all(ref.info_type_cd for ref in refs)
+    assert all(ref.info_type_group for ref in refs)
+    auth_nos = [ref.wanted_auth_no for ref in refs]
+    assert len(auth_nos) == len(set(auth_nos))
 
 
 def test_parse_total_count():
@@ -41,7 +48,7 @@ def test_parse_total_count():
 
 def test_parse_job_detail():
     html = read_fixture("detail_page.html")
-    job = parse_job_detail(html, WANTED_AUTH_NO)
+    job = parse_job_detail(html, TEST_REF)
     assert job is not None
     assert len(job.title) > 0
     assert len(job.company) > 0
@@ -51,7 +58,7 @@ def test_parse_job_detail():
 
 def test_parse_job_detail_has_required_fields():
     html = read_fixture("detail_page.html")
-    job = parse_job_detail(html, WANTED_AUTH_NO)
+    job = parse_job_detail(html, TEST_REF)
     assert job is not None
     assert job.qualification      # 지원 자격
     assert job.experience         # 연차

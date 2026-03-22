@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import requests
 from bs4 import BeautifulSoup, Tag
 
-from domain.models import Job
+from domain.models import Job, JobRef
 
 BASE_URL = "https://www.work24.go.kr"
 LISTING_URL = f"{BASE_URL}/wk/a/b/1200/retriveDtlEmpSrchListInPost.do"
@@ -70,15 +70,22 @@ _BLOCKED_MARKERS = [
 ]
 
 
-def parse_listing_ids(html: str) -> list[str]:
-    """HTML에서 wantedAuthNo 목록 추출 (empDetailAuthView 링크에서)"""
-    matches = re.findall(r'empDetailAuthView\.do\?wantedAuthNo=([^&"]+)', html)
+def parse_listing_refs(html: str) -> list[JobRef]:
+    """HTML에서 JobRef 목록 추출 (empDetailAuthView 링크의 전체 파라미터)"""
+    matches = re.findall(r'empDetailAuthView\.do\?([^"\']+)', html)
     seen: set[str] = set()
-    result: list[str] = []
-    for m in matches:
-        if m not in seen:
-            seen.add(m)
-            result.append(m)
+    result: list[JobRef] = []
+    for param_str in matches:
+        params = dict(p.split("=", 1) for p in param_str.split("&") if "=" in p)
+        auth_no = params.get("wantedAuthNo", "")
+        if not auth_no or auth_no in seen:
+            continue
+        seen.add(auth_no)
+        result.append(JobRef(
+            wanted_auth_no=auth_no,
+            info_type_cd=params.get("infoTypeCd", ""),
+            info_type_group=params.get("infoTypeGroup", ""),
+        ))
     return result
 
 
@@ -285,13 +292,13 @@ def is_expired_page(html: str) -> bool:
     return any(marker in html for marker in _EXPIRED_MARKERS)
 
 
-def parse_job_detail(html: str, wanted_auth_no: str) -> Job:
+def parse_job_detail(html: str, ref: JobRef) -> Job:
     """상세 페이지 HTML을 파싱하여 Job 객체 반환."""
     soup = BeautifulSoup(html, "lxml")
     now = datetime.now(timezone.utc).isoformat()
     detail_url = (
-        f"{DETAIL_URL}?wantedAuthNo={wanted_auth_no}"
-        "&infoTypeCd=VALIDATION&infoTypeGroup=tb_workinfoworknet"
+        f"{DETAIL_URL}?wantedAuthNo={ref.wanted_auth_no}"
+        f"&infoTypeCd={ref.info_type_cd}&infoTypeGroup={ref.info_type_group}"
     )
 
     # th/td 쌍 파싱
@@ -361,7 +368,7 @@ def parse_job_detail(html: str, wanted_auth_no: str) -> Job:
     registration_date = _extract_registration_date(tables)
 
     return Job(
-        wanted_auth_no=wanted_auth_no,
+        wanted_auth_no=ref.wanted_auth_no,
         scraped_at=now,
         title=title,
         job_description=job_description,
@@ -480,26 +487,30 @@ class Work24Scraper:
         )
         return parse_total_count(resp.text)
 
-    def fetch_listing_page(self, page: int, per_page: int = 50) -> list[str]:
+    def fetch_listing_page(self, page: int, per_page: int = 50) -> list[JobRef]:
         resp = self._request_with_delay(
             "POST", LISTING_URL,
             data={"sortField": "DATE", "sortOrderBy": "DESC", "pageIndex": page, "resultCnt": per_page},
             allow_redirects=True,
         )
-        return parse_listing_ids(resp.text)
+        return parse_listing_refs(resp.text)
 
-    def fetch_job_detail(self, wanted_auth_no: str) -> tuple[Job | None, str]:
+    def fetch_job_detail(self, ref: JobRef) -> tuple[Job | None, str]:
         """상세 페이지 조회. 반환: (job, status). status: 'ok'|'expired'|'blocked'|'error'"""
         try:
             resp = self._request_with_delay(
                 "GET", DETAIL_URL,
-                params={"wantedAuthNo": wanted_auth_no, "infoTypeCd": "VALIDATION", "infoTypeGroup": "tb_workinfoworknet"},
+                params={
+                    "wantedAuthNo": ref.wanted_auth_no,
+                    "infoTypeCd": ref.info_type_cd,
+                    "infoTypeGroup": ref.info_type_group,
+                },
             )
             if self._is_blocked(resp):
                 return (None, "blocked")
             if is_expired_page(resp.text):
                 return (None, "expired")
-            job = parse_job_detail(resp.text, wanted_auth_no)
+            job = parse_job_detail(resp.text, ref)
             return (job, "ok")
         except requests.RequestException:
             return (None, "error")
