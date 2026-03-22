@@ -6,7 +6,9 @@ from math import ceil
 class CollectResult:
     total: int
     collected: int
-    failed: int
+    expired: int
+    blocked: int
+    errors: int
 
 
 def _collect_missing(
@@ -22,14 +24,16 @@ def _collect_missing(
     total_pages = ceil(total / 50)
     end_page = min(total_pages, start_page + max_pages - 1) if max_pages else total_pages
     collected = 0
-    failed = 0
+    expired = 0
+    blocked = 0
+    errors = 0
 
     for page in range(start_page, end_page + 1):
         try:
             ids = scraper.fetch_listing_page(page)
         except Exception as e:
             print(f"[ERROR] 목록 페이지 {page} 실패: {e}")
-            failed += 50
+            errors += 50
             continue
 
         new_ids = [id for id in ids if id not in existing_ids]
@@ -38,20 +42,28 @@ def _collect_missing(
 
         for wanted_auth_no in new_ids:
             try:
-                job = scraper.fetch_job_detail(wanted_auth_no)
-                if job:
+                job, status = scraper.fetch_job_detail(wanted_auth_no)
+                if status == "ok":
                     store.add_job(job)
                     existing_ids.add(wanted_auth_no)
                     collected += 1
+                    print(f"[{page}/{total_pages}] {wanted_auth_no} {job.title} → 수집")
+                elif status == "expired":
+                    expired += 1
+                    print(f"[{page}/{total_pages}] {wanted_auth_no} → 만료")
+                elif status == "blocked":
+                    blocked += 1
+                    print(f"[{page}/{total_pages}] {wanted_auth_no} → 차단")
                 else:
-                    failed += 1
+                    errors += 1
+                    print(f"[{page}/{total_pages}] {wanted_auth_no} → 에러")
             except Exception as e:
-                print(f"[ERROR] 상세 조회 실패 ({wanted_auth_no}): {e}")
-                failed += 1
+                errors += 1
+                print(f"[{page}/{total_pages}] {wanted_auth_no} → 에러: {e}")
 
-        print(f"[{page}/{total_pages}] 신규: {collected}, 실패: {failed}")
+        print(f"[{page}/{total_pages} 완료] 신규: {collected}, 만료: {expired}, 차단: {blocked}, 에러: {errors}")
 
-    return CollectResult(total=total, collected=collected, failed=failed)
+    return CollectResult(total=total, collected=collected, expired=expired, blocked=blocked, errors=errors)
 
 
 def collect_all_jobs(scraper, store, max_pages: int | None = None) -> CollectResult:

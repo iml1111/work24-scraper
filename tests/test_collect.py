@@ -37,8 +37,11 @@ class FakeScraper:
     def fetch_listing_page(self, page: int, per_page: int = 50) -> list[str]:
         return self._pages.get(page, [])
 
-    def fetch_job_detail(self, wanted_auth_no: str) -> Job | None:
-        return self._details.get(wanted_auth_no)
+    def fetch_job_detail(self, wanted_auth_no: str) -> tuple[Job | None, str]:
+        job = self._details.get(wanted_auth_no)
+        if job is None:
+            return (None, "expired")
+        return (job, "ok")
 
 
 class FakeStore:
@@ -76,7 +79,9 @@ def test_collect_all_clears_and_collects():
 
     assert store.clear_called is True
     assert result.collected == 2
-    assert result.failed == 0
+    assert result.expired == 0
+    assert result.blocked == 0
+    assert result.errors == 0
     assert store.get_all_ids() == {"A001", "A002"}
     assert "OLD001" not in store.get_all_ids()
 
@@ -95,6 +100,7 @@ def test_resume_preserves_existing_and_fills_gaps():
 
     assert store.clear_called is False
     assert result.collected == 1  # A002만 신규
+    assert result.expired == 0
     assert store.get_all_ids() == {"A001", "A002"}
 
 
@@ -111,11 +117,12 @@ def test_resume_on_empty_db_collects_all():
 
     assert store.clear_called is False
     assert result.collected == 1
+    assert result.expired == 0
     assert store.get_all_ids() == {"A001"}
 
 
-def test_collect_counts_failed_details():
-    """상세 조회가 None을 반환하면 failed 카운트 증가"""
+def test_collect_counts_expired_details():
+    """상세 조회가 만료 응답이면 expired 카운트 증가"""
     scraper = FakeScraper(
         pages={1: ["A001", "A002"]},
         details={"A001": _make_job("A001"), "A002": None},
@@ -125,4 +132,6 @@ def test_collect_counts_failed_details():
     result = collect_all_jobs(scraper, store)
 
     assert result.collected == 1
-    assert result.failed == 1
+    assert result.expired == 1
+    assert result.blocked == 0
+    assert result.errors == 0
