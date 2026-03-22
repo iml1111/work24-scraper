@@ -37,8 +37,11 @@ class FakeScraper:
         self.fetched_pages.append(page)
         return self._pages.get(page, [])
 
-    def fetch_job_detail(self, wanted_auth_no: str) -> Job | None:
-        return self._details.get(wanted_auth_no)
+    def fetch_job_detail(self, wanted_auth_no: str) -> tuple[Job | None, str]:
+        job = self._details.get(wanted_auth_no)
+        if job is None:
+            return (None, "expired")
+        return (job, "ok")
 
 
 class FakeStore:

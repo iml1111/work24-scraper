@@ -6,7 +6,9 @@ from math import ceil
 class SyncResult:
     scanned_pages: int
     new_count: int
-    failed: int
+    expired: int
+    blocked: int
+    errors: int
 
 
 def sync_jobs(scraper, store, early_stop: int = 3) -> SyncResult:
@@ -15,7 +17,9 @@ def sync_jobs(scraper, store, early_stop: int = 3) -> SyncResult:
     total = scraper.get_total_count()
     total_pages = ceil(total / 50)
     new_count = 0
-    failed = 0
+    expired = 0
+    blocked = 0
+    errors = 0
     scanned_pages = 0
     consecutive_empty = 0
 
@@ -38,17 +42,25 @@ def sync_jobs(scraper, store, early_stop: int = 3) -> SyncResult:
             consecutive_empty = 0
             for wanted_auth_no in new_ids:
                 try:
-                    job = scraper.fetch_job_detail(wanted_auth_no)
-                    if job:
+                    job, status = scraper.fetch_job_detail(wanted_auth_no)
+                    if status == "ok":
                         store.add_job(job)
                         existing_ids.add(wanted_auth_no)
                         new_count += 1
+                        print(f"[{page}] {wanted_auth_no} {job.title} → 수집")
+                    elif status == "expired":
+                        expired += 1
+                        print(f"[{page}] {wanted_auth_no} → 만료")
+                    elif status == "blocked":
+                        blocked += 1
+                        print(f"[{page}] {wanted_auth_no} → 차단")
                     else:
-                        failed += 1
+                        errors += 1
+                        print(f"[{page}] {wanted_auth_no} → 에러")
                 except Exception as e:
-                    print(f"[ERROR] 상세 조회 실패 ({wanted_auth_no}): {e}")
-                    failed += 1
+                    errors += 1
+                    print(f"[{page}] {wanted_auth_no} → 에러: {e}")
 
         print(f"[{page}] 신규: {len(new_ids)}, 누적: {new_count}")
 
-    return SyncResult(scanned_pages=scanned_pages, new_count=new_count, failed=failed)
+    return SyncResult(scanned_pages=scanned_pages, new_count=new_count, expired=expired, blocked=blocked, errors=errors)
