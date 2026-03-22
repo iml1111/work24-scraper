@@ -2,6 +2,13 @@ from dataclasses import asdict, dataclass
 
 
 @dataclass
+class JobRef:
+    wanted_auth_no: str
+    info_type_cd: str
+    info_type_group: str
+
+
+@dataclass
 class Job:
     wanted_auth_no: str
     scraped_at: str
