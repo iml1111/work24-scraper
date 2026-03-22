@@ -394,7 +394,7 @@ def parse_job_detail(html: str, ref: JobRef) -> Job:
 class Work24Scraper:
     def __init__(
         self,
-        delay_range: tuple[float, float] = (3.0, 7.0),
+        delay_range: tuple[float, float] = (1.0, 3.0),
         rotate_every: int = 200,
     ):
         self.delay_range = delay_range
