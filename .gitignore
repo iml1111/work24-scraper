@@ -208,3 +208,4 @@ __marimo__/
 
 # Scraped data
 data/jobs.json
+.python-version
