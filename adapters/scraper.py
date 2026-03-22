@@ -285,11 +285,8 @@ def is_expired_page(html: str) -> bool:
     return any(marker in html for marker in _EXPIRED_MARKERS)
 
 
-def parse_job_detail(html: str, wanted_auth_no: str) -> Job | None:
-    """상세 페이지 HTML을 파싱하여 Job 객체 반환. 만료 시 None."""
-    if is_expired_page(html):
-        return None
-
+def parse_job_detail(html: str, wanted_auth_no: str) -> Job:
+    """상세 페이지 HTML을 파싱하여 Job 객체 반환."""
     soup = BeautifulSoup(html, "lxml")
     now = datetime.now(timezone.utc).isoformat()
     detail_url = (
@@ -390,7 +387,7 @@ def parse_job_detail(html: str, wanted_auth_no: str) -> Job | None:
 class Work24Scraper:
     def __init__(
         self,
-        delay_range: tuple[float, float] = (0.3, 1.5),
+        delay_range: tuple[float, float] = (3.0, 7.0),
         rotate_every: int = 200,
     ):
         self.delay_range = delay_range
@@ -491,16 +488,21 @@ class Work24Scraper:
         )
         return parse_listing_ids(resp.text)
 
-    def fetch_job_detail(self, wanted_auth_no: str) -> Job | None:
+    def fetch_job_detail(self, wanted_auth_no: str) -> tuple[Job | None, str]:
+        """상세 페이지 조회. 반환: (job, status). status: 'ok'|'expired'|'blocked'|'error'"""
         try:
             resp = self._request_with_delay(
                 "GET", DETAIL_URL,
                 params={"wantedAuthNo": wanted_auth_no, "infoTypeCd": "VALIDATION", "infoTypeGroup": "tb_workinfoworknet"},
             )
-            return parse_job_detail(resp.text, wanted_auth_no)
-        except requests.RequestException as e:
-            print(f"[ERROR] 상세 조회 실패 ({wanted_auth_no}): {e}")
-            return None
+            if self._is_blocked(resp):
+                return (None, "blocked")
+            if is_expired_page(resp.text):
+                return (None, "expired")
+            job = parse_job_detail(resp.text, wanted_auth_no)
+            return (job, "ok")
+        except requests.RequestException:
+            return (None, "error")
 
     def is_job_active(self, wanted_auth_no: str) -> bool:
         try:
