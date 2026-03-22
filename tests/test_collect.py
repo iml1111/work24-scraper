@@ -1,5 +1,9 @@
-from domain.models import Job
+from domain.models import Job, JobRef
 from usecases.collect import CollectResult, collect_all_jobs, resume_collect
+
+
+def _make_ref(wanted_auth_no: str) -> JobRef:
+    return JobRef(wanted_auth_no=wanted_auth_no, info_type_cd="VALIDATION", info_type_group="tb_workinfoworknet")
 
 
 def _make_job(wanted_auth_no: str) -> Job:
@@ -34,11 +38,11 @@ class FakeScraper:
     def get_total_count(self) -> int:
         return self._total
 
-    def fetch_listing_page(self, page: int, per_page: int = 50) -> list[str]:
-        return self._pages.get(page, [])
+    def fetch_listing_page(self, page: int, per_page: int = 50) -> list[JobRef]:
+        return [_make_ref(id) for id in self._pages.get(page, [])]
 
-    def fetch_job_detail(self, wanted_auth_no: str) -> tuple[Job | None, str]:
-        job = self._details.get(wanted_auth_no)
+    def fetch_job_detail(self, ref: JobRef) -> tuple[Job | None, str]:
+        job = self._details.get(ref.wanted_auth_no)
         if job is None:
             return (None, "expired")
         return (job, "ok")

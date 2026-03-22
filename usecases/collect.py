@@ -30,36 +30,36 @@ def _collect_missing(
 
     for page in range(start_page, end_page + 1):
         try:
-            ids = scraper.fetch_listing_page(page)
+            refs = scraper.fetch_listing_page(page)
         except Exception as e:
             print(f"[ERROR] 목록 페이지 {page} 실패: {e}")
             errors += 50
             continue
 
-        new_ids = [id for id in ids if id not in existing_ids]
-        if not new_ids:
+        new_refs = [ref for ref in refs if ref.wanted_auth_no not in existing_ids]
+        if not new_refs:
             continue
 
-        for wanted_auth_no in new_ids:
+        for ref in new_refs:
             try:
-                job, status = scraper.fetch_job_detail(wanted_auth_no)
+                job, status = scraper.fetch_job_detail(ref)
                 if status == "ok":
                     store.add_job(job)
-                    existing_ids.add(wanted_auth_no)
+                    existing_ids.add(ref.wanted_auth_no)
                     collected += 1
-                    print(f"[{page}/{total_pages}] {wanted_auth_no} {job.title} → 수집")
+                    print(f"[{page}/{total_pages}] {ref.wanted_auth_no} {job.title} → 수집")
                 elif status == "expired":
                     expired += 1
-                    print(f"[{page}/{total_pages}] {wanted_auth_no} → 만료")
+                    print(f"[{page}/{total_pages}] {ref.wanted_auth_no} → 만료")
                 elif status == "blocked":
                     blocked += 1
-                    print(f"[{page}/{total_pages}] {wanted_auth_no} → 차단")
+                    print(f"[{page}/{total_pages}] {ref.wanted_auth_no} → 차단")
                 else:
                     errors += 1
-                    print(f"[{page}/{total_pages}] {wanted_auth_no} → 에러")
+                    print(f"[{page}/{total_pages}] {ref.wanted_auth_no} → 에러")
             except Exception as e:
                 errors += 1
-                print(f"[{page}/{total_pages}] {wanted_auth_no} → 에러: {e}")
+                print(f"[{page}/{total_pages}] {ref.wanted_auth_no} → 에러: {e}")
 
         print(f"[{page}/{total_pages} 완료] 신규: {collected}, 만료: {expired}, 차단: {blocked}, 에러: {errors}")
 
