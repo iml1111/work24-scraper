@@ -487,7 +487,7 @@ class Work24Scraper:
         )
         return parse_total_count(resp.text)
 
-    def fetch_listing_page(self, page: int, per_page: int = 50) -> list[JobRef]:
+    def fetch_listing_page(self, page: int, per_page: int = 10) -> list[JobRef]:
         resp = self._request_with_delay(
             "POST", LISTING_URL,
             data={"sortField": "DATE", "sortOrderBy": "DESC", "pageIndex": page, "resultCnt": per_page},

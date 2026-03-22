@@ -18,7 +18,7 @@ def sync_jobs(scraper: Work24Scraper, store: JsonJobStore, early_stop: int = 3) 
     """신규 공고만 추가 — 연속 early_stop 페이지 신규 0이면 중단"""
     existing_ids = store.get_all_ids()
     total = scraper.get_total_count()
-    total_pages = ceil(total / 50)
+    total_pages = ceil(total / 10)
     new_count = 0
     expired = 0
     blocked = 0

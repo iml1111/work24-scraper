@@ -38,7 +38,7 @@ class FakeScraper:
     def get_total_count(self) -> int:
         return self._total
 
-    def fetch_listing_page(self, page: int, per_page: int = 50) -> list[JobRef]:
+    def fetch_listing_page(self, page: int, per_page: int = 10) -> list[JobRef]:
         return [_make_ref(id) for id in self._pages.get(page, [])]
 
     def fetch_job_detail(self, ref: JobRef) -> tuple[Job | None, str]:

@@ -24,7 +24,7 @@ def _collect_missing(
     """페이지를 순회하며 existing_ids에 없는 공고만 수집.
     existing_ids는 in-place로 갱신되어 같은 실행 내 중복 요청을 방지한다."""
     total = scraper.get_total_count()
-    total_pages = ceil(total / 50)
+    total_pages = ceil(total / 10)
     end_page = min(total_pages, start_page + max_pages - 1) if max_pages else total_pages
     collected = 0
     expired = 0
@@ -36,7 +36,7 @@ def _collect_missing(
             refs = scraper.fetch_listing_page(page)
         except Exception as e:
             print(f"[ERROR] 목록 페이지 {page} 실패: {e}")
-            errors += 50
+            errors += 10
             continue
 
         new_refs = [ref for ref in refs if ref.wanted_auth_no not in existing_ids]
@@ -79,6 +79,6 @@ def resume_collect(scraper: Work24Scraper, store: JsonJobStore, max_pages: int |
     """중단 재개 — 기존 데이터 보존, 빠진 공고만 수집.
     빈 DB에서 실행하면 collect_all_jobs와 동일하게 전체 수집 (clear 없이)."""
     existing_ids = store.get_all_ids()
-    start_page = len(existing_ids) // 50 + 1 if max_pages and existing_ids else 1
+    start_page = len(existing_ids) // 10 + 1 if max_pages and existing_ids else 1
     print(f"[RESUME] 기존 {len(existing_ids)}건 보존, 페이지 {start_page}부터 수집")
     return _collect_missing(scraper, store, existing_ids, start_page=start_page, max_pages=max_pages)
