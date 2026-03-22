@@ -1,5 +1,8 @@
 from dataclasses import dataclass
 
+from adapters.scraper import Work24Scraper
+from adapters.store import JsonJobStore
+
 
 @dataclass
 class ValidateResult:
@@ -8,7 +11,7 @@ class ValidateResult:
     still_active: int
 
 
-def validate_all_jobs(scraper, store) -> ValidateResult:
+def validate_all_jobs(scraper: Work24Scraper, store: JsonJobStore) -> ValidateResult:
     jobs = store.load_all()
     total = len(jobs)
     removed = 0

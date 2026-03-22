@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from math import ceil
 
+from adapters.scraper import Work24Scraper
+from adapters.store import JsonJobStore
+
 
 @dataclass
 class CollectResult:
@@ -12,8 +15,8 @@ class CollectResult:
 
 
 def _collect_missing(
-    scraper,
-    store,
+    scraper: Work24Scraper,
+    store: JsonJobStore,
     existing_ids: set[str],
     start_page: int = 1,
     max_pages: int | None = None,
@@ -66,13 +69,13 @@ def _collect_missing(
     return CollectResult(total=total, collected=collected, expired=expired, blocked=blocked, errors=errors)
 
 
-def collect_all_jobs(scraper, store, max_pages: int | None = None) -> CollectResult:
+def collect_all_jobs(scraper: Work24Scraper, store: JsonJobStore, max_pages: int | None = None) -> CollectResult:
     """완전 초기 수집 — DB 초기화 후 전체 수집"""
     store.clear()
     return _collect_missing(scraper, store, existing_ids=set(), max_pages=max_pages)
 
 
-def resume_collect(scraper, store, max_pages: int | None = None) -> CollectResult:
+def resume_collect(scraper: Work24Scraper, store: JsonJobStore, max_pages: int | None = None) -> CollectResult:
     """중단 재개 — 기존 데이터 보존, 빠진 공고만 수집.
     빈 DB에서 실행하면 collect_all_jobs와 동일하게 전체 수집 (clear 없이)."""
     existing_ids = store.get_all_ids()

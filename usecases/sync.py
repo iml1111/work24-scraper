@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from math import ceil
 
+from adapters.scraper import Work24Scraper
+from adapters.store import JsonJobStore
+
 
 @dataclass
 class SyncResult:
@@ -11,7 +14,7 @@ class SyncResult:
     errors: int
 
 
-def sync_jobs(scraper, store, early_stop: int = 3) -> SyncResult:
+def sync_jobs(scraper: Work24Scraper, store: JsonJobStore, early_stop: int = 3) -> SyncResult:
     """신규 공고만 추가 — 연속 early_stop 페이지 신규 0이면 중단"""
     existing_ids = store.get_all_ids()
     total = scraper.get_total_count()
