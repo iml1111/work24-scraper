@@ -9,6 +9,8 @@ from domain.models import Job
 def make_job(wanted_auth_no: str = "TEST001") -> Job:
     return Job(
         wanted_auth_no=wanted_auth_no,
+        info_type_cd="VALIDATION",
+        info_type_group="tb_workinfoworknet",
         scraped_at="2026-03-18T18:00:00",
         title="테스트 공고",
         job_description="테스트 직무내용",

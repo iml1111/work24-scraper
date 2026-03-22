@@ -4,6 +4,8 @@ from domain.models import Job, job_from_dict, job_to_dict
 def make_sample_job() -> Job:
     return Job(
         wanted_auth_no="KF10882603180014",
+        info_type_cd="VALIDATION",
+        info_type_group="tb_workinfoworknet",
         scraped_at="2026-03-18T18:00:00",
         title="[장기동] 재가요양보호사 모집",
         job_description="장기동 장기주공아파트 3등급 여자어르신 가사서비스",

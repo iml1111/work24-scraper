@@ -9,6 +9,8 @@ def _make_ref(wanted_auth_no: str) -> JobRef:
 def _make_job(wanted_auth_no: str) -> Job:
     return Job(
         wanted_auth_no=wanted_auth_no,
+        info_type_cd="VALIDATION",
+        info_type_group="tb_workinfoworknet",
         scraped_at="2026-03-19T00:00:00",
         title=f"공고 {wanted_auth_no}",
         job_description="테스트",

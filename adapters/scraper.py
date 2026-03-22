@@ -369,6 +369,8 @@ def parse_job_detail(html: str, ref: JobRef) -> Job:
 
     return Job(
         wanted_auth_no=ref.wanted_auth_no,
+        info_type_cd=ref.info_type_cd,
+        info_type_group=ref.info_type_group,
         scraped_at=now,
         title=title,
         job_description=job_description,
@@ -394,7 +396,7 @@ def parse_job_detail(html: str, ref: JobRef) -> Job:
 class Work24Scraper:
     def __init__(
         self,
-        delay_range: tuple[float, float] = (1.0, 3.0),
+        delay_range: tuple[float, float] = (0.5, 2.0),
         rotate_every: int = 200,
     ):
         self.delay_range = delay_range
@@ -515,11 +517,11 @@ class Work24Scraper:
         except requests.RequestException:
             return (None, "error")
 
-    def is_job_active(self, wanted_auth_no: str) -> bool:
+    def is_job_active(self, wanted_auth_no: str, info_type_cd: str, info_type_group: str) -> bool:
         try:
             resp = self._request_with_delay(
                 "GET", DETAIL_URL,
-                params={"wantedAuthNo": wanted_auth_no, "infoTypeCd": "VALIDATION", "infoTypeGroup": "tb_workinfoworknet"},
+                params={"wantedAuthNo": wanted_auth_no, "infoTypeCd": info_type_cd, "infoTypeGroup": info_type_group},
             )
             return not is_expired_page(resp.text)
         except requests.RequestException:

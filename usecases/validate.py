@@ -16,15 +16,16 @@ def validate_all_jobs(scraper: Work24Scraper, store: JsonJobStore) -> ValidateRe
     total = len(jobs)
     removed = 0
 
-    for i, wanted_auth_no in enumerate(list(jobs.keys()), 1):
+    for i, (wanted_auth_no, job) in enumerate(list(jobs.items()), 1):
+        status = "유효"
         try:
-            if not scraper.is_job_active(wanted_auth_no):
+            if not scraper.is_job_active(wanted_auth_no, job.info_type_cd, job.info_type_group):
                 store.remove_job(wanted_auth_no)
                 removed += 1
+                status = "제거"
         except Exception as e:
-            print(f"[ERROR] 검증 실패 ({wanted_auth_no}): {e}")
+            status = f"에러: {e}"
 
-        if i % 100 == 0 or i == total:
-            print(f"[{i}/{total}] 제거: {removed}, 유효: {i - removed}")
+        print(f"[{i}/{total}] {wanted_auth_no} → {status}")
 
     return ValidateResult(total_checked=total, removed=removed, still_active=total - removed)

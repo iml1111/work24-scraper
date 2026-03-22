@@ -11,6 +11,8 @@ class JobRef:
 @dataclass
 class Job:
     wanted_auth_no: str
+    info_type_cd: str
+    info_type_group: str
     scraped_at: str
     title: str
     job_description: str
