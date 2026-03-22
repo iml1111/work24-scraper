@@ -11,4 +11,6 @@ if __name__ == "__main__":
     print(f"\n=== 완료 ===")
     print(f"스캔 페이지: {result.scanned_pages}")
     print(f"신규 추가: {result.new_count}")
-    print(f"실패: {result.failed}")
+    print(f"만료 스킵: {result.expired}")
+    print(f"차단: {result.blocked}")
+    print(f"에러: {result.errors}")

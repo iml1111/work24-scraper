@@ -18,4 +18,6 @@ if __name__ == "__main__":
     print(f"\n=== 완료 ===")
     print(f"총 공고: {result.total}")
     print(f"수집 성공: {result.collected}")
-    print(f"수집 실패: {result.failed}")
+    print(f"만료 스킵: {result.expired}")
+    print(f"차단: {result.blocked}")
+    print(f"에러: {result.errors}")
